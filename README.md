@@ -20,6 +20,7 @@ The pipeline consists of three sequential stages:
 
 ```
 TBC-ML-Pipeline/
+├── run_pipeline.py                # Entry point — auto-detects ABAQUS
 ├── src/
 │   ├── generate_cards.py          # Stage 1: ABAQUS input file generation
 │   ├── abaqus_ml_pipeline.py      # Stage 2: Simulation execution and data extraction
@@ -27,9 +28,11 @@ TBC-ML-Pipeline/
 ├── data/
 │   └── materials.json             # Material property database (YSZ + CMSX-4)
 ├── results/
+│   ├── dataset.json               # Pre-built simulation dataset (512 samples)
 │   ├── ml_results.json            # Model performance metrics and feature importances
 │   └── ml_results_description.txt # Detailed explanation of all results
 ├── requirements.txt
+├── .gitignore
 └── README.md
 ```
 
@@ -114,7 +117,26 @@ Full result details in [`results/ml_results_description.txt`](results/ml_results
 
 ## Usage
 
-### Stage 1 — Generate ABAQUS input files
+### Recommended: single entry point
+
+```bash
+python run_pipeline.py
+```
+
+`run_pipeline.py` automatically checks whether ABAQUS is installed and routes accordingly:
+
+| Situation | What happens |
+|-----------|-------------|
+| ABAQUS found on PATH | Full pipeline: generate cards → simulate → train model |
+| ABAQUS not found | Stages 1–2 skipped; pre-built `results/dataset.json` is used for training |
+
+No manual configuration required.
+
+---
+
+### Manual stage-by-stage execution
+
+**Stage 1 — Generate ABAQUS input files** *(requires ABAQUS)*
 
 ```bash
 python src/generate_cards.py data/materials.json out_dir
@@ -122,9 +144,7 @@ python src/generate_cards.py data/materials.json out_dir
 
 Output: `out_dir/` containing 512 `.inp` files and `variants_manifest.json`.
 
-### Stage 2 — Run simulations and extract results
-
-Requires a licensed ABAQUS installation with `abaqus` on PATH.
+**Stage 2 — Run simulations and extract results** *(requires ABAQUS)*
 
 ```bash
 python src/abaqus_ml_pipeline.py
@@ -132,13 +152,15 @@ python src/abaqus_ml_pipeline.py
 
 Output: `results_ml/dataset.json`
 
-### Stage 3 — Train ML model
+**Stage 3 — Train ML model** *(no ABAQUS needed)*
 
 ```bash
 python src/train_model.py
 ```
 
 Output: `ml_results.json`, `ml_results.png`
+
+> If running Stage 3 manually without ABAQUS, copy `results/dataset.json` to `results_ml/dataset.json` first.
 
 ---
 
