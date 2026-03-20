@@ -1,0 +1,166 @@
+================================================================================
+  TBC-ML-PIPELINE — ML RESULTS DESCRIPTION
+  File: ml_results.json
+================================================================================
+
+This file documents all outputs stored in ml_results.json, produced by
+src/train_model.py after completing the full simulation and data extraction
+pipeline.
+
+--------------------------------------------------------------------------------
+1. CONTEXT AND GOAL
+--------------------------------------------------------------------------------
+
+The objective of this machine learning study is to predict the effective thermal
+conductivity (k_eff) of a two-layer Thermal Barrier Coating (TBC) system:
+
+    [YSZ coating] + [CMSX-4 substrate]
+
+k_eff quantifies how efficiently the combined material system conducts heat
+under a fixed temperature gradient (T_hot = 1400 K, T_cold = 600 K). It is
+defined as:
+
+    k_eff = (q * L_total) / ΔT
+
+    where:
+        q         = average heat flux through the system [W/mm²]
+        L_total   = YSZ thickness + 10 mm (CMSX-4 fixed thickness) [mm]
+        ΔT        = 800 K (fixed boundary condition difference)
+
+This quantity is the ML target (label). It was computed for each of the 512
+ABAQUS simulations via src/abaqus_ml_pipeline.py.
+
+--------------------------------------------------------------------------------
+2. DATASET
+--------------------------------------------------------------------------------
+
+Total samples generated:    512
+  - 4 YSZ thicknesses:      0.5, 1.0, 1.5, 2.0 mm
+  - 128 random variants per thickness (±20% variation on all YSZ properties)
+
+Successful ABAQUS runs:     512 / 512  (no failures)
+
+Split for ML training:
+  - Training set:           412 samples  (randomly selected)
+  - Test set:               100 samples  (randomly selected, no overlap)
+
+k_eff statistics across all 512 samples:
+  - Min:   0.000669 W/mm·K
+  - Max:   0.007339 W/mm·K
+  - Mean:  0.004181 W/mm·K
+
+--------------------------------------------------------------------------------
+3. ML FEATURES
+--------------------------------------------------------------------------------
+
+Four candidate features were extracted from each YSZ material card:
+
+  Feature               | Description
+  ----------------------|-------------------------------------------------------
+  ysz_thickness_mm      | Thickness of the YSZ coating layer [mm]
+  ysz_density           | Density of YSZ [tonne/mm³], varied ±20%
+  ysz_k_avg             | Average YSZ thermal conductivity over temperature
+                        | range [W/mm·K], varied ±20%
+  ysz_cp_avg            | Average YSZ specific heat over temperature
+                        | range [mJ/tonne·K], varied ±20%
+
+CMSX-4 properties were held constant across all variants and therefore
+excluded as features (zero variance — no information contribution to the model).
+
+--------------------------------------------------------------------------------
+4. FEATURE IMPORTANCE ANALYSIS
+--------------------------------------------------------------------------------
+
+A full Random Forest (100 trees) was trained on all 512 samples to rank features
+by their contribution to the prediction of k_eff.
+
+Results stored in ml_results.json → "feature_importance":
+
+  Rank | Feature              | Importance Score
+  -----|----------------------|------------------
+   1   | YSZ k_avg            | 0.9134  (91.3%)
+   2   | YSZ Thickness (mm)   | 0.0831  ( 8.3%)
+   3   | YSZ Cp_avg           | 0.0017  ( 0.2%)
+   4   | YSZ Density          | 0.0017  ( 0.2%)
+
+Interpretation:
+  - YSZ thermal conductivity dominates almost entirely. This is physically
+    expected: in a series thermal resistance model, the layer with the lower
+    conductivity (YSZ, ~0.001–0.003 W/mm·K) controls the overall heat flow.
+    CMSX-4 is significantly more conductive (~0.008–0.025 W/mm·K) and fixed,
+    so it adds only a near-constant offset to the resistance.
+  - YSZ thickness contributes the second-most. A thicker YSZ layer increases
+    its thermal resistance, reducing k_eff even for the same k material value.
+  - Density and Cp have negligible importance for a steady-state prediction.
+    These properties govern transient thermal behavior, not the steady-state
+    heat flux that defines k_eff here.
+
+Selected top 2 features for final model training (stored in "top_2_features"):
+  ["YSZ k_avg", "YSZ Thickness (mm)"]
+
+--------------------------------------------------------------------------------
+5. MODEL ARCHITECTURE
+--------------------------------------------------------------------------------
+
+Algorithm:          Random Forest Regressor (scikit-learn)
+Number of trees:    100
+Max depth:          10
+Min samples split:  2
+Random state:       42
+
+Input:  2 features — [ysz_k_avg, ysz_thickness_mm]
+Output: k_effective [W/mm·K]
+
+--------------------------------------------------------------------------------
+6. MODEL PERFORMANCE
+--------------------------------------------------------------------------------
+
+Results stored in ml_results.json → "training_metrics" and "test_metrics".
+
+  Metric   | Training Set    | Test Set
+  ---------|-----------------|------------------
+  R²       | 0.9984          | 0.9904
+  MAE      | 6.33 × 10⁻⁵    | 1.57 × 10⁻⁴
+  RMSE     | 8.60 × 10⁻⁵    | 2.05 × 10⁻⁴
+
+  Units of MAE and RMSE: W/mm·K
+
+Interpretation:
+  - R² of 0.9904 on the unseen test set means the model explains 99.04% of
+    the variance in k_eff using only two input features.
+  - The small gap between training and test R² (0.9984 vs 0.9904) indicates
+    only minor overfitting, which is expected and acceptable for a Random Forest
+    with max_depth=10 on 412 training samples.
+  - MAE of ~1.57×10⁻⁴ W/mm·K is small relative to the k_eff range of
+    ~6.67×10⁻³ W/mm·K (min to max), corresponding to ~2.4% average error.
+  - The model generalizes well because the physical relationship between YSZ k,
+    thickness, and system k_eff is smooth and nearly analytical (series
+    resistance), making it highly learnable from this dataset size.
+
+--------------------------------------------------------------------------------
+7. VISUALIZATIONS
+--------------------------------------------------------------------------------
+
+ml_results.png (generated alongside this file by train_model.py) contains
+6 subplots:
+
+  [1,1] Feature Importance bar chart — top 2 features highlighted in green
+  [1,2] Predicted vs. Actual scatter — Training set, with perfect-fit line
+  [1,3] Predicted vs. Actual scatter — Test set, with perfect-fit line
+  [2,1] Residuals plot — Training set (residuals vs. predicted k_eff)
+  [2,2] Residuals plot — Test set
+  [2,3] Performance metric comparison bar chart (R², MAE, RMSE)
+
+--------------------------------------------------------------------------------
+8. FILES IN THIS RESULTS FOLDER
+--------------------------------------------------------------------------------
+
+  ml_results.json          — Raw numeric outputs (importances, metrics, config)
+  ml_results_description.txt — This file
+
+To reproduce results, run in order:
+  1. python src/generate_cards.py data/materials.json out_dir
+  2. python src/abaqus_ml_pipeline.py        (requires ABAQUS license)
+  3. python src/train_model.py
+
+================================================================================

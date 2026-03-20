@@ -1,0 +1,192 @@
+{
+  "units_used": {
+    "length": "mm",
+    "force": "N",
+    "mass": "tonne",
+    "stress": "MPa (N/mm^2)",
+    "energy": "mJ (1e-3 J)",
+    "density": "tonne/mm^3",
+    "thermal_conductivity": "W/mm*K",
+    "specific_heat": "mJ/tonne*K",
+    "temperature": "K"
+  },
+
+  "materials": {
+    "CMSX-4": {
+      "thermal_conductivity_W_per_mmK": {
+        "data": [
+          [300, 0.007807],
+          [700, 0.016],
+          [900, 0.019],
+          [1100, 0.02],
+          [1200, 0.020584],
+          [1300, 0.019],
+          [1400, 0.01925],
+          [1500, 0.02],
+          [1600, 0.025],
+          [1700, 0.024]
+        ],
+        "source": "https://www.researchgate.net/figure/Thermal-conductivity-of-CMSX-4-alloy-as-a-function-of-temperature_fig8_225461367"
+      },
+
+      "density_tonne_per_mm3": {
+        "data": [
+          [273, 8.75e-9],
+          [623, 8.5e-9],
+          [1123, 8.4e-9],
+          [1473, 8.2e-9]
+        ],
+        "source": "https://www.researchgate.net/figure/Thermophysical-properties-of-CMSX-4-and-CMSX-10-in-the-temperature-range-20-1300C-a_fig1_374862747"
+      },
+
+      "elastic_properties": {
+        "orientation_001": {
+          "data": [
+            [297.15, 123863.999, 0.3917],
+            [473.15, 118491.000, 0.3940],
+            [673.15, 113110.000, 0.3964],
+            [873.15, 105079.000, 0.4011],
+            [1073.15, 95717.000, 0.4076],
+            [1273.15, 82053.000, 0.4147],
+            [1373.15, 69938.000, 0.4273],
+            [1473.15, 57633.000, 0.4408],
+            [1523.15, 49290.000, 0.4497],
+            [1553.15, 45083.000, 0.4543],
+            [1573.15, 42267.000, 0.4575]
+          ],
+          "units": ["K", "MPa", "Poisson"],
+          "source": [
+            "https://www.sciencedirect.com/science/article/pii/S0921509300013186",
+            "https://www.researchgate.net/publication/349044220_Investigation_of_Elastic_Properties_of_the_Single-Crystal_Nickel-Base_Superalloy_CMSX-4_in_the_Temperature_Interval_between_Room_Temperature_and_1300_C"
+          ]
+        },
+
+        "orientation_101": {
+          "data": [
+            [297.15, 227613.999, 0.3098],
+            [473.15, 217884.000, 0.3111],
+            [673.15, 208122.000, 0.3125],
+            [873.15, 195210.000, 0.3196],
+            [1073.15, 180328.000, 0.3302],
+            [1273.15, 159879.000, 0.3530],
+            [1373.15, 143515.000, 0.3919],
+            [1473.15, 124755.000, 0.4368],
+            [1523.15, 111600.000, 0.4778],
+            [1553.15, 103908.000, 0.4954],
+            [1573.15, 99592.000, 0.5176]
+          ]
+        },
+
+        "orientation_111": {
+          "data": [
+            [297.15, 315782.999, 0.4199],
+            [473.15, 302450.000, 0.4218],
+            [673.15, 289059.000, 0.4237],
+            [873.15, 273370.000, 0.4261],
+            [1073.15, 255658.000, 0.4296],
+            [1273.15, 233796.000, 0.4308],
+            [1373.15, 221023.000, 0.4351],
+            [1473.15, 203920.000, 0.4415],
+            [1523.15, 192872.000, 0.4454],
+            [1553.15, 183890.000, 0.4486],
+            [1573.15, 181765.000, 0.4497]
+          ]
+        }
+      },
+
+      "specific_heat_capacity_mJ_per_tonneK": {
+        "data": [
+          [273, 3.996e8],
+          [373, 4.198e8],
+          [773, 4.997e8],
+          [1073, 5.997e8],
+          [1273, 6.661e8],
+          [1373, 7.141e8],
+          [1473, 7.444e8],
+          [1523, 7.894e8],
+          [1573, 8.560e8]
+        ],
+        "source": "https://www.researchgate.net/publication/374862747_Comparison_of_Isothermal_and_Adiabatic_Elasticity_Characteristics_of_the_Single_Crystal_Nickel-Based_Superalloy_CMSX-4_in_the_Temperature_Range_Between_Room_Temperature_and_1300C"
+      }
+    },
+
+    "YSZ": {
+      "density_tonne_per_mm3": {
+        "data": 6e-9,
+        "source": "https://www.morgantechnicalceramics.com/media/lpybwekm/yttria-stabilised-zirconia.pdf"
+      },
+
+      "thermal_conductivity_W_per_mmK": {
+        "dense": {
+          "4mol": [
+            {"T_K": 273.15, "k": 0.0028},
+            {"T_K": 1273.15, "k": 0.0024}
+          ],
+          "8mol": [
+            {"T_K": 273.15, "k": 0.0018},
+            {"T_K": 1273.15, "k": 0.0020}
+          ],
+          "12mol": [
+            {"T_K": 473.15, "k": 0.0016},
+            {"T_K": 1673.15, "k": 0.0016}
+          ]
+        },
+
+        "porous": {
+          "3mol_37pct": [
+            {"T_K": 273.15, "k": 0.0010},
+            {"T_K": 1073.15, "k": 0.0015}
+          ],
+          "sintered_1400C": [
+            {"T_K": 273.15, "k": 0.00025},
+            {"T_K": 1673.15, "k": 0.00025}
+          ],
+          "sintered_1450C": [
+            {"T_K": 273.15, "k": 0.00020},
+            {"T_K": 1673.15, "k": 0.00020}
+          ],
+          "sintered_1500C": [
+            {"T_K": 273.15, "k": 0.00018},
+            {"T_K": 1673.15, "k": 0.00018}
+          ],
+          "sintered_1550C": [
+            {"T_K": 273.15, "k": 0.00015},
+            {"T_K": 1673.15, "k": 0.00015}
+          ]
+        },
+        "source": "https://www.researchgate.net/figure/Comparison-of-thermal-conductivity-for-porous-YSZ-ceramics-with-different-sintering_fig2_225734759"
+      },
+
+      "elastic_properties": {
+        "orientation_100": [
+          {"T_K": 200, "E_MPa": 325000, "nu": 0.46},
+          {"T_K": 1300, "E_MPa": 325000, "nu": 0.43}
+        ],
+        "orientation_110": [
+          {"T_K": 200, "E_MPa": 390000, "nu": 0.45},
+          {"T_K": 1300, "E_MPa": 350000, "nu": 0.44}
+        ],
+        "orientation_111": [
+          {"T_K": 200, "E_MPa": 355000, "nu": 0.48},
+          {"T_K": 1300, "E_MPa": 350000, "nu": 0.45}
+        ],
+        "orientation_113": [
+          {"T_K": 200, "E_MPa": 375000, "nu": 0.44},
+          {"T_K": 1300, "E_MPa": 335000, "nu": 0.40}
+        ],
+        "source": "https://www.sciencedirect.com/science/article/pii/S0167663620305846"
+      },
+
+      "specific_heat_mJ_per_tonneK": {
+        "data": [
+          {"T_K": 373, "Cp": 4.9e8},
+          {"T_K": 1423, "Cp": 5.1e8}
+        ],
+        "source": [
+          "https://www.morgantechnicalceramics.com/media/lpybwekm/yttria-stabilised-zirconia.pdf",
+          "https://www.eai.enea.it/archivio/n-1-2-gennaio-aprile-2013/microstructure-and-thermal-properties-of-plasma-sprayed-ceramic-thermal-barrier-coatings.html"
+        ]
+      }
+    }
+  }
+}

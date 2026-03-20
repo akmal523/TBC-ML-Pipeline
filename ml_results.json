@@ -1,0 +1,24 @@
+{
+  "feature_importance": {
+    "YSZ Thickness (mm)": 0.08309702493880648,
+    "YSZ Density": 0.0017145976310059758,
+    "YSZ k_avg": 0.9134452358500994,
+    "YSZ Cp_avg": 0.0017431415800881452
+  },
+  "top_2_features": [
+    "YSZ k_avg",
+    "YSZ Thickness (mm)"
+  ],
+  "training_size": 412,
+  "test_size": 100,
+  "training_metrics": {
+    "r2": 0.9984436861545778,
+    "mae": 6.333205710593449e-05,
+    "rmse": 8.604062941012971e-05
+  },
+  "test_metrics": {
+    "r2": 0.9903795236361425,
+    "mae": 0.00015744443863069667,
+    "rmse": 0.00020529485000107722
+  }
+}
