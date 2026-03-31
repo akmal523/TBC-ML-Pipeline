@@ -16,25 +16,23 @@ The pipeline consists of three sequential stages:
 
 ---
 
-## Repository Structure
-
-```
 TBC-ML-Pipeline/
-├── run_pipeline.py                # Entry point — auto-detects ABAQUS
-├── src/
-│   ├── generate_cards.py          # Stage 1: ABAQUS input file generation
-│   ├── abaqus_ml_pipeline.py      # Stage 2: Simulation execution and data extraction
-│   └── train_model.py             # Stage 3: ML model training and evaluation
-├── data/
-│   └── materials.json             # Material property database (YSZ + CMSX-4)
-├── results/
-│   ├── dataset.json               # Pre-built simulation dataset (512 samples)
-│   ├── ml_results.json            # Model performance metrics and feature importances
-│   └── ml_results_description.txt # Detailed explanation of all results
-├── requirements.txt
-├── .gitignore
-└── README.md
-```
+├── run_pipeline.py                # Main orchestrator; handles environmental auto-detection
+├── src/                           # Logic layer (The creative intellect of the project)
+│   ├── generate_cards.py          # Stage 1: Randomized ABAQUS .inp generation
+│   ├── abaqus_ml_pipeline.py      # Stage 2: Simulation execution and ODB data parsing
+│   ├── train_model.py             # Stage 3: Random Forest training and evaluation
+│   ├── comp.py                    # Mathematical comparison and validation logic
+│   └── tbc_ml_plots.py            # Logic for generating analytical visualizations
+├── data/                          # Fixed input parameters
+│   └── materials.json             # Reference physical properties for YSZ and CMSX-4
+├── results/                       # Artifact layer (Transient outputs of the logic)
+│   ├── dataset.json               # Primary simulation database (512 samples)
+│   ├── ml_results.json            # Model metrics and feature importance weights
+│   └── ml_results_description.txt # Textual interpretation of simulation outcomes
+├── requirements.txt               # Dependency manifest
+├── .gitignore                     # Rules to exclude machine-specific/binary bloat
+└── README.md                      # Project documentation and usage instructions
 
 ---
 
@@ -144,23 +142,16 @@ python src/generate_cards.py data/materials.json out_dir
 
 Output: `out_dir/` containing 512 `.inp` files and `variants_manifest.json`.
 
-**Stage 2 — Run simulations and extract results** *(requires ABAQUS)*
+# Manual stage-by-stage execution
 
-```bash
-python src/abaqus_ml_pipeline.py
-```
+**Stage 2 — Run simulations and extract results**
+Output: `results/dataset.json`
 
-Output: `results_ml/dataset.json`
+**Stage 3 — Train ML model**
+Output: `results/ml_results.json`, `results/ml_results.png`
 
-**Stage 3 — Train ML model** *(no ABAQUS needed)*
+> If running Stage 3 manually without ABAQUS, ensure `results/dataset.json` exists.
 
-```bash
-python src/train_model.py
-```
-
-Output: `ml_results.json`, `ml_results.png`
-
-> If running Stage 3 manually without ABAQUS, copy `results/dataset.json` to `results_ml/dataset.json` first.
 
 ---
 
