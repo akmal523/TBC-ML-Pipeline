@@ -15,7 +15,7 @@ The pipeline consists of three sequential stages:
 | 3 | `train_model.py` | Trains a Random Forest model to predict effective thermal conductivity |
 
 ---
-
+```text
 TBC-ML-Pipeline/
 ├── run_pipeline.py                # Main orchestrator; handles environmental auto-detection
 ├── src/                           # Logic layer (The creative intellect of the project)
