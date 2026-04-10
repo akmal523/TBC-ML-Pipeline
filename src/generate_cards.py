@@ -3,6 +3,19 @@ import random
 import os
 import sys
 
+# Number of elements through each layer.
+# YSZ: 4 elements (unchanged).
+# CMSX-4: 10 elements of 1 mm each.
+# Root cause of HFL2 spatial non-uniformity: the original code used a single
+# 10 mm CMSX-4 element.  With temperature-dependent conductivity, k(T) spans
+# ~7.8e-3 to ~2.0e-2 W mm⁻¹ K⁻¹ over the 800 K service range.  Within a
+# single DC2D4 element the constitutive flux q = -k(T)*dT/dy therefore varies
+# between Gauss points by up to ~60 %, violating ∇·q = 0 visually.
+# 10 elements of 1 mm each reduce the temperature span per element to ~80 K,
+# making the within-element k(T) variation negligible.
+N_YSZ  = 4
+N_SUB  = 10
+
 
 def vary(value, percent=0.20):
     """Apply ±20% random variation to a value."""
@@ -12,50 +25,51 @@ def vary(value, percent=0.20):
 def pick_ysz_elastic(db):
     """Select random YSZ elastic orientation and apply variation."""
     elastic_data = db["materials"]["YSZ"]["elastic_properties"]
-    orientation = random.choice([k for k in elastic_data.keys() if k.startswith("orientation_")])
-    
+    orientation = random.choice(
+        [k for k in elastic_data.keys() if k.startswith("orientation_")]
+    )
+
     varied_elastic = []
     for entry in elastic_data[orientation]:
-        varied_elastic.append({
-            "T_K": entry["T_K"],
-            "E_MPa": vary(entry["E_MPa"]),
-            "nu": vary(entry["nu"])
-        })
-    
+        varied_elastic.append(
+            {
+                "T_K": entry["T_K"],
+                "E_MPa": vary(entry["E_MPa"]),
+                "nu": vary(entry["nu"]),
+            }
+        )
+
     return orientation, varied_elastic
 
 
 def pick_ysz_thermal_conductivity(db):
     """Select random YSZ thermal conductivity curve (dense or porous)."""
     k_data = db["materials"]["YSZ"]["thermal_conductivity_W_per_mmK"]
-    
-    # Randomly choose dense or porous
-    mode = random.choice(["dense", "porous"])
+
+    mode  = random.choice(["dense", "porous"])
     curve = random.choice(list(k_data[mode].values()))
-    
-    # Apply variation to each temperature point
+
     return [[pt["T_K"], vary(pt["k"])] for pt in curve]
 
 
 def pick_ysz_variant(db, thickness_mm):
-    """Generate one randomized YSZ material variant."""
+    """Generate one randomised YSZ material variant."""
     base_density = db["materials"]["YSZ"]["density_tonne_per_mm3"]["data"]
-    
-    # Vary specific heat
+
     varied_cp = []
     for entry in db["materials"]["YSZ"]["specific_heat_mJ_per_tonneK"]["data"]:
         varied_cp.append([entry["T_K"], vary(entry["Cp"])])
-    
+
     orientation, elastic = pick_ysz_elastic(db)
-    
+
     return {
-        "material_name": "YSZ",
-        "thickness_mm": thickness_mm,
-        "density": vary(base_density),
-        "elastic_orientation": orientation,
-        "elastic": elastic,
-        "thermal_conductivity": pick_ysz_thermal_conductivity(db),
-        "specific_heat": varied_cp
+        "material_name":         "YSZ",
+        "thickness_mm":          thickness_mm,
+        "density":               vary(base_density),
+        "elastic_orientation":   orientation,
+        "elastic":               elastic,
+        "thermal_conductivity":  pick_ysz_thermal_conductivity(db),
+        "specific_heat":         varied_cp,
     }
 
 
@@ -64,85 +78,104 @@ def get_cmsx4_properties(db):
     cmsx = db["materials"]["CMSX-4"]
     return {
         "material_name": "CMSX-4",
-        "density": cmsx["density_tonne_per_mm3"]["data"],
-        "k": cmsx["thermal_conductivity_W_per_mmK"]["data"],
-        "elastic_001": cmsx["elastic_properties"]["orientation_001"]["data"],
-        "elastic_101": cmsx["elastic_properties"]["orientation_101"]["data"],
-        "elastic_111": cmsx["elastic_properties"]["orientation_111"]["data"],
-        "Cp": cmsx["specific_heat_capacity_mJ_per_tonneK"]["data"]
+        "density":       cmsx["density_tonne_per_mm3"]["data"],
+        "k":             cmsx["thermal_conductivity_W_per_mmK"]["data"],
+        "elastic_001":   cmsx["elastic_properties"]["orientation_001"]["data"],
+        "elastic_101":   cmsx["elastic_properties"]["orientation_101"]["data"],
+        "elastic_111":   cmsx["elastic_properties"]["orientation_111"]["data"],
+        "Cp":            cmsx["specific_heat_capacity_mJ_per_tonneK"]["data"],
     }
 
 
 def generate_abaqus_input(ysz, cmsx, job_name, T_hot=1400.0, T_cold=600.0):
     """
-    Generate ABAQUS input file for thermal barrier coating simulation.
-    
-    Single part with two material sections:
-    - YSZ layer (bottom, hot side)
-    - CMSX-4 layer (top, cold side)
+    Generate ABAQUS input file for the YSZ / CMSX-4 heat-transfer simulation.
+
+    Mesh layout (N_YSZ = 4, N_SUB = 10):
+    ──────────────────────────────────────────────────────────────
+    Node rows  0 … N_YSZ            : YSZ layer (hot face at row 0)
+    Node rows  N_YSZ … N_YSZ+N_SUB : CMSX-4 substrate (cold face at last row)
+    ──────────────────────────────────────────────────────────────
+    Total node rows  : N_YSZ + N_SUB + 1  =  15
+    Total nodes      : 2 × 15             =  30
+    Total elements   : N_YSZ + N_SUB      =  14  (DC2D4)
+    ──────────────────────────────────────────────────────────────
+    Element numbering (1-indexed):
+      1 … N_YSZ          → YSZ_Elements  (YSZ layer)
+      N_YSZ+1 … N_YSZ+N_SUB → CMSX4_Elements (substrate)
+    ──────────────────────────────────────────────────────────────
+    Hot face (Γ_hot)  : nodes 1, 2      (y = 0)
+    Cold face (Γ_cold): nodes 29, 30    (y = ysz_thick + cmsx_thick)
     """
     lines = []
-    
-    # Header
+
+    # ── Header ────────────────────────────────────────────────────────────────
     lines.append("*Heading")
     lines.append(f"** Job: {job_name}, YSZ thickness: {ysz['thickness_mm']} mm")
     lines.append("*Preprint, echo=NO, model=NO, history=NO")
     lines.append("**")
-    
-    # Geometry: YSZ on bottom, CMSX-4 on top
-    ysz_thick = ysz['thickness_mm']
+
+    # ── Geometry ──────────────────────────────────────────────────────────────
+    ysz_thick  = ysz["thickness_mm"]
     cmsx_thick = 10.0
-    y_interface = ysz_thick
-    y_top = ysz_thick + cmsx_thick
-    
-    # YSZ is subdivided into 4 equal elements through thickness.
-    # Node numbering: left (x=0) and right (x=10) pairs from hot face upward.
-    #   Nodes  1, 2 : y = 0               (hot face, Gamma_hot)
-    #   Nodes  3, 4 : y = ysz_thick/4
-    #   Nodes  5, 6 : y = ysz_thick/2
-    #   Nodes  7, 8 : y = 3*ysz_thick/4
-    #   Nodes  9,10 : y = ysz_thick        (YSZ/CMSX-4 interface)
-    #   Nodes 11,12 : y = ysz_thick + 10   (cold face, Gamma_cold)
-    # Elements (DC2D4, CCW from bottom-left):
-    #   1-4 : YSZ   (elements 1..4)
-    #   5   : CMSX-4 (element 5)
+    y_top      = ysz_thick + cmsx_thick
 
-    dy = ysz_thick / 4.0   # YSZ element height
+    dy = ysz_thick  / N_YSZ   # element height inside YSZ layer
+    ds = cmsx_thick / N_SUB   # element height inside CMSX-4 layer (1 mm)
 
-    # Part definition
+    total_rows  = N_YSZ + N_SUB + 1   # 15
+    total_nodes = 2 * total_rows       # 30
+    n_elements  = N_YSZ + N_SUB        # 14
+
+    # ── Part definition ───────────────────────────────────────────────────────
     lines.append("** PART: Composite")
     lines.append("*Part, name=Composite")
+
+    # Nodes: two columns (x = 0 and x = 10), rows bottom (hot) to top (cold).
     lines.append("*Node")
-    for row in range(6):
-        y = dy * row if row < 5 else y_top
-        node_left  = 2 * row + 1
-        node_right = 2 * row + 2
-        lines.append(f"  {node_left:4d},           0., {y:12.6f}")
-        lines.append(f"  {node_right:4d},          10., {y:12.6f}")
+    for row in range(total_rows):
+        if row <= N_YSZ:
+            y = row * dy
+        else:
+            y = ysz_thick + (row - N_YSZ) * ds
+        node_l = 2 * row + 1
+        node_r = 2 * row + 2
+        lines.append(f"  {node_l:4d},           0., {y:12.6f}")
+        lines.append(f"  {node_r:4d},          10., {y:12.6f}")
 
+    # Elements (DC2D4, CCW: bottom-left → bottom-right → top-right → top-left).
     lines.append("*Element, type=DC2D4")
-    # 4 YSZ elements
-    for el in range(1, 5):
-        bl = 2 * (el - 1) + 1   # bottom-left node
-        br = bl + 1              # bottom-right
-        tl = bl + 2              # top-left
-        tr = tl + 1              # top-right
+    for el in range(1, n_elements + 1):
+        row = el - 1          # bottom row of this element (0-indexed)
+        bl  = 2 * row + 1
+        br  = 2 * row + 2
+        tl  = 2 * (row + 1) + 1
+        tr  = 2 * (row + 1) + 2
         lines.append(f"{el}, {bl}, {br}, {tr}, {tl}")
-    # 1 CMSX-4 element
-    lines.append("5, 9, 10, 12, 11")
 
+    # Element sets.
+    ysz_el_list  = ", ".join(str(i) for i in range(1, N_YSZ + 1))
+    cmsx_el_list = ", ".join(str(i) for i in range(N_YSZ + 1, n_elements + 1))
     lines.append("*Elset, elset=YSZ_Elements")
-    lines.append(" 1, 2, 3, 4")
+    lines.append(f" {ysz_el_list}")
     lines.append("*Elset, elset=CMSX4_Elements")
-    lines.append(" 5,")
+    lines.append(f" {cmsx_el_list}")
+
+    # Node sets.
+    hot_l  = 1
+    hot_r  = 2
+    cold_l = 2 * (total_rows - 1) + 1   # 29
+    cold_r = 2 * (total_rows - 1) + 2   # 30
+    all_nodes_str = ", ".join(str(i) for i in range(1, total_nodes + 1))
 
     lines.append("*Nset, nset=HotSide")
-    lines.append(" 1, 2")
+    lines.append(f" {hot_l}, {hot_r}")
     lines.append("*Nset, nset=ColdSide")
-    lines.append(" 11, 12")
+    lines.append(f" {cold_l}, {cold_r}")
     lines.append("*Nset, nset=AllNodes")
-    lines.append(" 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12")
-    
+    lines.append(f" {all_nodes_str}")
+
+    # Section assignments.
     lines.append("** Section: YSZ_Section")
     lines.append("*Solid Section, elset=YSZ_Elements, material=YSZ")
     lines.append("1.,")
@@ -151,8 +184,8 @@ def generate_abaqus_input(ysz, cmsx, job_name, T_hot=1400.0, T_cold=600.0):
     lines.append("1.,")
     lines.append("*End Part")
     lines.append("**")
-    
-    # Assembly
+
+    # ── Assembly ──────────────────────────────────────────────────────────────
     lines.append("** ASSEMBLY")
     lines.append("*Assembly, name=Assembly")
     lines.append("*Instance, name=Composite-1, part=Composite")
@@ -163,46 +196,41 @@ def generate_abaqus_input(ysz, cmsx, job_name, T_hot=1400.0, T_cold=600.0):
     lines.append(" ColdSide,")
     lines.append("*End Assembly")
     lines.append("**")
-    
-    # Material: CMSX-4
+
+    # ── Material: CMSX-4 ──────────────────────────────────────────────────────
+    # Full temperature-dependent table is written (not just the 300 K entry).
     lines.append("** MATERIAL: CMSX4")
     lines.append("*Material, name=CMSX4")
     lines.append("*Density")
     lines.append(f"{cmsx['density'][0][1]:.6e},")
-    
-    # Correction: Removed dependencies=1 and fixed string formatting
     lines.append("*Conductivity")
     for T, k in cmsx["k"]:
         lines.append(f"{k:.6e}, {T:.2f}")
-        
     lines.append("*Specific Heat")
     for T, cp in cmsx["Cp"]:
         lines.append(f"{cp:.6e}, {T:.2f}")
     lines.append("**")
-    
-    # Material: YSZ
+
+    # ── Material: YSZ ─────────────────────────────────────────────────────────
     lines.append("** MATERIAL: YSZ")
     lines.append("*Material, name=YSZ")
     lines.append("*Density")
     lines.append(f"{ysz['density']:.6e},")
-    
-    # Correction: Removed dependencies=1 and fixed string formatting
     lines.append("*Conductivity")
     for T, k in sorted(ysz["thermal_conductivity"], key=lambda x: x[0]):
         lines.append(f"{k:.6e}, {T:.2f}")
-        
     lines.append("*Specific Heat")
     for T, cp in sorted(ysz["specific_heat"], key=lambda x: x[0]):
         lines.append(f"{cp:.6e}, {T:.2f}")
     lines.append("**")
-    
-    # Initial conditions
+
+    # ── Initial conditions ────────────────────────────────────────────────────
     lines.append("** INITIAL CONDITIONS")
     lines.append("*Initial Conditions, type=TEMPERATURE")
-    lines.append("Composite-1.AllNodes, 300.")   # covers all 12 nodes
+    lines.append("Composite-1.AllNodes, 300.")
     lines.append("**")
-    
-    # Heat transfer step
+
+    # ── Heat-transfer step ────────────────────────────────────────────────────
     lines.append("** STEP: HeatTransfer")
     lines.append("*Step, name=HeatTransfer, nlgeom=NO")
     lines.append("*Heat Transfer, steady state")
@@ -210,20 +238,20 @@ def generate_abaqus_input(ysz, cmsx, job_name, T_hot=1400.0, T_cold=600.0):
     lines.append("**")
     lines.append("** BOUNDARY CONDITIONS")
     lines.append("*Boundary")
-    lines.append(f"HotBC, 11, 11, {T_hot:.1f}")
+    lines.append(f"HotBC,  11, 11, {T_hot:.1f}")
     lines.append(f"ColdBC, 11, 11, {T_cold:.1f}")
     lines.append("**")
     lines.append("** OUTPUT REQUESTS")
     lines.append("*Output, field")
     lines.append("*Node Output")
     lines.append("NT,")
-    lines.append("*Element Output")
+    lines.append("*Element Output, position=INTEGRATION POINT")
     lines.append("HFL,")
     lines.append("*Output, history")
     lines.append("*Node Output, nset=ColdBC")
     lines.append("NT,")
     lines.append("*End Step")
-    
+
     return "\n".join(lines)
 
 
@@ -231,60 +259,49 @@ def main():
     if len(sys.argv) != 3:
         print("Usage: python generate_cards.py materials.json out_dir")
         sys.exit(1)
-    
+
     json_file = sys.argv[1]
-    out_dir = sys.argv[2]
-    
-    # Create output directory
+    out_dir   = sys.argv[2]
+
     os.makedirs(out_dir, exist_ok=True)
-    
-    # Load material database
+
     with open(json_file, "r") as f:
         db = json.load(f)
-    
-    # Get CMSX-4 properties (constant for all models)
+
     cmsx = get_cmsx4_properties(db)
-    
-    # Generate 512 variants: 4 thicknesses × 128 samples
-    thicknesses = [0.5, 1.0, 1.5, 2.0]
+
+    thicknesses           = [0.5, 1.0, 1.5, 2.0]
     samples_per_thickness = 128
-    
+
     manifest = []
-    counter = 1
-    
+    counter  = 1
+
     for thickness in thicknesses:
         for _ in range(samples_per_thickness):
-            # Generate randomized YSZ variant
-            ysz = pick_ysz_variant(db, thickness)
-            
-            # Create job name and file path
+            ysz      = pick_ysz_variant(db, thickness)
             job_name = f"YSZ_var_{counter:03d}"
             inp_file = f"{job_name}.inp"
             inp_path = os.path.join(out_dir, inp_file)
-            
-            # Write ABAQUS input file
+
             with open(inp_path, "w") as f:
-                # Change T_hot and T_cold here if needed
-                f.write(generate_abaqus_input(ysz, cmsx, job_name, T_hot=1400.0, T_cold=600.0))
-            
-            # Add to manifest
-            manifest.append({
-                "id": job_name,
-                "file": inp_file,
-                "YSZ": ysz,
-                "CMSX4": cmsx
-            })
-            
+                f.write(
+                    generate_abaqus_input(ysz, cmsx, job_name,
+                                          T_hot=1400.0, T_cold=600.0)
+                )
+
+            manifest.append(
+                {"id": job_name, "file": inp_file, "YSZ": ysz, "CMSX4": cmsx}
+            )
             counter += 1
-    
-    # Write manifest
+
     manifest_path = os.path.join(out_dir, "variants_manifest.json")
     with open(manifest_path, "w") as f:
         json.dump(manifest, f, indent=2)
-    
+
     print(f"Generated {len(manifest)} ABAQUS input files")
     print(f"Output directory: {out_dir}")
     print(f"Manifest: {manifest_path}")
+    print(f"Mesh: {N_YSZ} YSZ elements + {N_SUB} CMSX-4 elements = {N_YSZ+N_SUB} total")
 
 
 if __name__ == "__main__":
