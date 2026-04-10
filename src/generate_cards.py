@@ -95,32 +95,53 @@ def generate_abaqus_input(ysz, cmsx, job_name, T_hot=1400.0, T_cold=600.0):
     y_interface = ysz_thick
     y_top = ysz_thick + cmsx_thick
     
+    # YSZ is subdivided into 4 equal elements through thickness.
+    # Node numbering: left (x=0) and right (x=10) pairs from hot face upward.
+    #   Nodes  1, 2 : y = 0               (hot face, Gamma_hot)
+    #   Nodes  3, 4 : y = ysz_thick/4
+    #   Nodes  5, 6 : y = ysz_thick/2
+    #   Nodes  7, 8 : y = 3*ysz_thick/4
+    #   Nodes  9,10 : y = ysz_thick        (YSZ/CMSX-4 interface)
+    #   Nodes 11,12 : y = ysz_thick + 10   (cold face, Gamma_cold)
+    # Elements (DC2D4, CCW from bottom-left):
+    #   1-4 : YSZ   (elements 1..4)
+    #   5   : CMSX-4 (element 5)
+
+    dy = ysz_thick / 4.0   # YSZ element height
+
     # Part definition
     lines.append("** PART: Composite")
     lines.append("*Part, name=Composite")
     lines.append("*Node")
-    lines.append("      1,           0.,           0.")
-    lines.append("      2,          10.,           0.")
-    lines.append(f"      3,          10., {y_interface:12.6f}")
-    lines.append(f"      4,           0., {y_interface:12.6f}")
-    lines.append(f"      5,          10., {y_top:12.6f}")
-    lines.append(f"      6,           0., {y_top:12.6f}")
-    
+    for row in range(6):
+        y = dy * row if row < 5 else y_top
+        node_left  = 2 * row + 1
+        node_right = 2 * row + 2
+        lines.append(f"  {node_left:4d},           0., {y:12.6f}")
+        lines.append(f"  {node_right:4d},          10., {y:12.6f}")
+
     lines.append("*Element, type=DC2D4")
-    lines.append("1, 1, 2, 3, 4")
-    lines.append("2, 4, 3, 5, 6")
-    
+    # 4 YSZ elements
+    for el in range(1, 5):
+        bl = 2 * (el - 1) + 1   # bottom-left node
+        br = bl + 1              # bottom-right
+        tl = bl + 2              # top-left
+        tr = tl + 1              # top-right
+        lines.append(f"{el}, {bl}, {br}, {tr}, {tl}")
+    # 1 CMSX-4 element
+    lines.append("5, 9, 10, 12, 11")
+
     lines.append("*Elset, elset=YSZ_Elements")
-    lines.append(" 1,")
+    lines.append(" 1, 2, 3, 4")
     lines.append("*Elset, elset=CMSX4_Elements")
-    lines.append(" 2,")
-    
+    lines.append(" 5,")
+
     lines.append("*Nset, nset=HotSide")
     lines.append(" 1, 2")
     lines.append("*Nset, nset=ColdSide")
-    lines.append(" 5, 6")
+    lines.append(" 11, 12")
     lines.append("*Nset, nset=AllNodes")
-    lines.append(" 1, 2, 3, 4, 5, 6")
+    lines.append(" 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12")
     
     lines.append("** Section: YSZ_Section")
     lines.append("*Solid Section, elset=YSZ_Elements, material=YSZ")
@@ -148,10 +169,13 @@ def generate_abaqus_input(ysz, cmsx, job_name, T_hot=1400.0, T_cold=600.0):
     lines.append("*Material, name=CMSX4")
     lines.append("*Density")
     lines.append(f"{cmsx['density'][0][1]:.6e},")
-    lines.append("*Conductivity, dependencies=1")
+    
+    # Correction: Removed dependencies=1 and fixed string formatting
+    lines.append("*Conductivity")
     for T, k in cmsx["k"]:
-        lines.append(f"{k:.6e},, {T:.2f}")
-    lines.append("*Specific Heat, dependencies=1")
+        lines.append(f"{k:.6e}, {T:.2f}")
+        
+    lines.append("*Specific Heat")
     for T, cp in cmsx["Cp"]:
         lines.append(f"{cp:.6e}, {T:.2f}")
     lines.append("**")
@@ -161,10 +185,13 @@ def generate_abaqus_input(ysz, cmsx, job_name, T_hot=1400.0, T_cold=600.0):
     lines.append("*Material, name=YSZ")
     lines.append("*Density")
     lines.append(f"{ysz['density']:.6e},")
-    lines.append("*Conductivity, dependencies=1")
+    
+    # Correction: Removed dependencies=1 and fixed string formatting
+    lines.append("*Conductivity")
     for T, k in sorted(ysz["thermal_conductivity"], key=lambda x: x[0]):
-        lines.append(f"{k:.6e},, {T:.2f}")
-    lines.append("*Specific Heat, dependencies=1")
+        lines.append(f"{k:.6e}, {T:.2f}")
+        
+    lines.append("*Specific Heat")
     for T, cp in sorted(ysz["specific_heat"], key=lambda x: x[0]):
         lines.append(f"{cp:.6e}, {T:.2f}")
     lines.append("**")
@@ -172,7 +199,7 @@ def generate_abaqus_input(ysz, cmsx, job_name, T_hot=1400.0, T_cold=600.0):
     # Initial conditions
     lines.append("** INITIAL CONDITIONS")
     lines.append("*Initial Conditions, type=TEMPERATURE")
-    lines.append("Composite-1.AllNodes, 300.")
+    lines.append("Composite-1.AllNodes, 300.")   # covers all 12 nodes
     lines.append("**")
     
     # Heat transfer step
