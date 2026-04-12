@@ -5,15 +5,14 @@ import subprocess
 import time
 from multiprocessing import Pool
 
-
-# ── Path anchor ───────────────────────────────────────────────────────────────
+# -- Path anchor ---------------------------------------------------------------
 _HERE        = os.path.dirname(os.path.abspath(__file__))
 ROOT         = os.path.normpath(os.path.join(_HERE, ".."))
 
 VARIANTS_DIR = os.path.join(ROOT, "out_dir")
 ABAQUS_JOBS  = os.path.join(ROOT, "abaqus_jobs")
 RESULTS_DIR  = os.path.join(ROOT, "results_ml")
-# ─────────────────────────────────────────────────────────────────────────────
+# ------------------------------------------------------------------------------
 
 T_HOT  = 1400.0
 T_COLD =  600.0
@@ -29,10 +28,10 @@ def load_manifest():
 
 
 def run_abaqus(job_name, inp_file):
-    odb_path = os.path.join(ABAQUS_JOBS, f"{job_name}.odb")
+    odb_path = os.path.join(ABAQUS_JOBS, "%s.odb" % job_name)
 
     if os.path.exists(odb_path):
-        print(f"Skipping {job_name} (already completed)")
+        print("Skipping %s (already completed)" % job_name)
         return True
 
     src = os.path.join(VARIANTS_DIR, inp_file)
@@ -40,10 +39,10 @@ def run_abaqus(job_name, inp_file):
     if os.path.abspath(src) != os.path.abspath(dst):
         shutil.copy(src, dst)
 
-    print(f"Running ABAQUS job: {job_name}")
+    print("Running ABAQUS job: %s" % job_name)
 
     result = subprocess.run(
-        ["abaqus", f"job={job_name}", f"input={inp_file}", "cpus=1"],
+        ["abaqus", "job=%s" % job_name, "input=%s" % inp_file, "cpus=1"],
         cwd=ABAQUS_JOBS,
         capture_output=True,
         text=True,
@@ -51,7 +50,7 @@ def run_abaqus(job_name, inp_file):
     )
 
     if result.returncode != 0:
-        print(f"ERROR: ABAQUS failed for {job_name}")
+        print("ERROR: ABAQUS failed for %s" % job_name)
         print(result.stderr)
         return False
 
@@ -65,162 +64,143 @@ def run_abaqus(job_name, inp_file):
             time.sleep(2)
             final_size   = os.path.getsize(odb_path)
             if initial_size == final_size:
-                print(f"Completed: {job_name}")
+                print("Completed: %s" % job_name)
                 return True
 
         time.sleep(wait_interval)
         elapsed += wait_interval
 
-    print(f"ERROR: Timeout waiting for {job_name}")
+    print("ERROR: Timeout waiting for %s" % job_name)
     return False
 
 
 def create_odb_extraction_script():
     """
-    Write the ABAQUS/Python ODB extraction script.
+    Write the ABAQUS/Python ODB extraction script to abaqus_jobs/.
 
     Flux extraction uses area-weighted Gauss-point averaging:
-    ─────────────────────────────────────────────────────────
-      q̄'' = Σ_e Σ_g ( w_g · HFL2_e,g · |J_e,g| )
-             ────────────────────────────────────────
-             Σ_e Σ_g ( w_g · |J_e,g| )
+      q_avg = sum_e( A_e * mean_HFL2_e ) / sum_e( A_e )
+    where A_e is computed from node coordinates read from the ODB.
 
-    For DC2D4 elements with 2×2 Gauss quadrature, w_g = 1 and
-    |J_e,g| = element_area / 4 (constant for rectangular elements).
-    The expression therefore reduces to:
-      q̄'' = Σ_e ( A_e · mean_HFL2_e ) / Σ_e A_e
+    HFL2 (v.data[1]) is the through-thickness (y) component.
+    HFL1 (v.data[0]) is the lateral component, identically zero in
+    a 1D through-y problem and must not be used for k_eff extraction.
 
-    where A_e is the element area computed from node coordinates
-    read directly from the ODB.  This correctly weights the thin
-    YSZ elements and the CMSX-4 elements by their physical area,
-    eliminating the bias introduced by the previous simple count
-    average (which over-weighted YSZ integration points by the
-    ratio N_YSZ_pts / N_CMSX4_pts independent of element height).
-
-    HFL2 is the through-thickness (y-direction) flux component,
-    accessed as v.data[1].  HFL1 (lateral, x-direction) is v.data[0]
-    and is identically zero in a 1D through-y problem.  Using HFL1
-    or the vector magnitude sqrt(HFL1²+HFL2²) instead of HFL2 was
-    the bug in the original code; the magnitude is numerically equal
-    to HFL2 only in this strictly 1D case and must not be relied upon
-    for any 2D or 3D extension.
+    The script string contains only ASCII characters to avoid
+    UnicodeEncodeError when the ABAQUS Windows Python (cp1252) writes it.
     """
-    script = r"""
-import sys
-import json
-from collections import defaultdict
-from odbAccess import openOdb
+    lines = [
+        "import sys",
+        "import json",
+        "from collections import defaultdict",
+        "from odbAccess import openOdb",
+        "",
+        "",
+        "def extract_thermal_data(odb_path):",
+        "    odb = openOdb(path=odb_path, readOnly=True)",
+        "    try:",
+        "        step_name = list(odb.steps.keys())[0]",
+        "        step      = odb.steps[step_name]",
+        "        frame     = step.frames[-1]",
+        "",
+        "        # Nodal temperatures.",
+        "        temp_field = frame.fieldOutputs['NT11']",
+        "        temps = [float(v.data) for v in temp_field.values]",
+        "",
+        "        # Node coordinate map.",
+        "        inst_name = list(odb.rootAssembly.instances.keys())[0]",
+        "        instance  = odb.rootAssembly.instances[inst_name]",
+        "",
+        "        node_coords = {}",
+        "        for n in instance.nodes:",
+        "            node_coords[n.label] = n.coordinates",
+        "",
+        "        # Element areas from node coordinates.",
+        "        # DC2D4 connectivity (CCW): n1=BL, n2=BR, n3=TR, n4=TL.",
+        "        # area = width * height for rectangular elements.",
+        "        element_area = {}",
+        "        for el in instance.elements:",
+        "            conn   = el.connectivity",
+        "            n1     = node_coords[conn[0]]",
+        "            n2     = node_coords[conn[1]]",
+        "            n4     = node_coords[conn[3]]",
+        "            width  = abs(n2[0] - n1[0])",
+        "            height = abs(n4[1] - n1[1])",
+        "            element_area[el.label] = width * height",
+        "",
+        "        # HFL2 = index 1 = through-thickness (y) flux component.",
+        "        # Group integration-point values by element label.",
+        "        flux_field   = frame.fieldOutputs['HFL']",
+        "        element_hfl2 = defaultdict(list)",
+        "",
+        "        for v in flux_field.values:",
+        "            if hasattr(v.data, '__len__') and len(v.data) > 1:",
+        "                hfl2 = float(v.data[1])",
+        "            else:",
+        "                raise RuntimeError(",
+        "                    'HFL has unexpected scalar shape. '",
+        "                    'Check *Element Output position=CENTROIDAL.'",
+        "                )",
+        "            element_hfl2[v.elementLabel].append(hfl2)",
+        "",
+        "        # Area-weighted average of HFL2.",
+        "        total_weighted = 0.0",
+        "        total_area     = 0.0",
+        "        for el_label, hfl2_list in element_hfl2.items():",
+        "            a    = element_area.get(el_label, 0.0)",
+        "            mean = sum(hfl2_list) / len(hfl2_list)",
+        "            total_weighted += mean * a",
+        "            total_area     += a",
+        "",
+        "        if total_area == 0.0:",
+        "            raise RuntimeError('Total element area is zero.')",
+        "",
+        "        avg_flux = total_weighted / total_area",
+        "        all_hfl2 = [v for lst in element_hfl2.values() for v in lst]",
+        "",
+        "        return {",
+        "            'avg_heat_flux_W_per_mm2': avg_flux,",
+        "            'max_heat_flux_W_per_mm2': max(abs(v) for v in all_hfl2),",
+        "            'max_temperature_K':       max(temps),",
+        "            'min_temperature_K':       min(temps),",
+        "            'avg_temperature_K':       sum(temps) / len(temps),",
+        "            'num_nodes':               len(temps),",
+        "            'num_elements':            len(element_hfl2),",
+        "            'total_area_mm2':          total_area,",
+        "        }",
+        "    finally:",
+        "        odb.close()",
+        "",
+        "",
+        "if __name__ == '__main__':",
+        "    odb_file    = sys.argv[1]",
+        "    output_json = sys.argv[2]",
+        "    results = extract_thermal_data(odb_file)",
+        "    with open(output_json, 'w') as f:",
+        "        json.dump(results, f, indent=2)",
+        "",
+    ]
 
-
-def extract_thermal_data(odb_path):
-    odb = openOdb(path=odb_path, readOnly=True)
-    try:
-        step_name = list(odb.steps.keys())[0]
-        step      = odb.steps[step_name]
-        frame     = step.frames[-1]
-
-        # ── Nodal temperatures ──────────────────────────────────────────────
-        temp_field = frame.fieldOutputs['NT11']
-        temps = [float(v.data) for v in temp_field.values]
-
-        # ── Build node-coordinate map from the assembly ──────────────────────
-        inst_name = list(odb.rootAssembly.instances.keys())[0]
-        instance  = odb.rootAssembly.instances[inst_name]
-
-        node_coords = {}
-        for n in instance.nodes:
-            node_coords[n.label] = n.coordinates   # (x, y, z)
-
-        # ── Compute element areas from node coordinates ───────────────────────
-        # DC2D4 connectivity order: n1(BL), n2(BR), n3(TR), n4(TL) (CCW).
-        # For rectangular elements: area = width * height.
-        element_area = {}
-        for el in instance.elements:
-            conn = el.connectivity      # tuple of 4 node labels (1-indexed)
-            n1   = node_coords[conn[0]]  # bottom-left  (x, y, z)
-            n2   = node_coords[conn[1]]  # bottom-right
-            n4   = node_coords[conn[3]]  # top-left
-            width  = abs(n2[0] - n1[0])
-            height = abs(n4[1] - n1[1])
-            element_area[el.label] = width * height
-
-        # ── HFL2 (through-thickness component) at integration points ─────────
-        # Group by element label, then form element-level mean HFL2.
-        flux_field     = frame.fieldOutputs['HFL']
-        element_hfl2   = defaultdict(list)
-
-        for v in flux_field.values:
-            # v.data is a sequence: (HFL1, HFL2) for 2D problems.
-            # HFL2 = index 1 = through-thickness (y) component.
-            if hasattr(v.data, '__len__') and len(v.data) > 1:
-                hfl2 = float(v.data[1])
-            else:
-                # Scalar field output (should not occur for HFL, but handle
-                # gracefully so the pipeline never silently uses the wrong
-                # component).
-                raise RuntimeError(
-                    "HFL field output has unexpected scalar shape; "
-                    "expected a 2-component vector.  Check the *Element Output "
-                    "request in the .inp file (position=INTEGRATION POINT)."
-                )
-            element_hfl2[v.elementLabel].append(hfl2)
-
-        # ── Area-weighted average of HFL2 ─────────────────────────────────────
-        total_weighted_flux = 0.0
-        total_area          = 0.0
-
-        for el_label, hfl2_list in element_hfl2.items():
-            a    = element_area.get(el_label, 0.0)
-            mean = sum(hfl2_list) / len(hfl2_list)
-            total_weighted_flux += mean * a
-            total_area          += a
-
-        if total_area == 0.0:
-            raise RuntimeError("Total element area is zero; ODB may be empty.")
-
-        avg_flux = total_weighted_flux / total_area
-
-        return {
-            'avg_heat_flux_W_per_mm2': avg_flux,
-            'max_heat_flux_W_per_mm2': max(
-                abs(v) for lst in element_hfl2.values() for v in lst
-            ),
-            'max_temperature_K':  max(temps),
-            'min_temperature_K':  min(temps),
-            'avg_temperature_K':  sum(temps) / len(temps),
-            'num_nodes':          len(temps),
-            'num_elements':       len(element_hfl2),
-            'total_area_mm2':     total_area,
-        }
-    finally:
-        odb.close()
-
-
-if __name__ == '__main__':
-    odb_file    = sys.argv[1]
-    output_json = sys.argv[2]
-    results = extract_thermal_data(odb_file)
-    with open(output_json, 'w') as f:
-        json.dump(results, f, indent=2)
-"""
     script_path = os.path.join(ABAQUS_JOBS, "extract_odb.py")
-    with open(script_path, "w") as f:
-        f.write(script)
+    # Explicit ASCII encoding prevents UnicodeEncodeError on Windows
+    # ABAQUS Python (cp1252 locale).
+    with open(script_path, "w", encoding="ascii") as f:
+        f.write("\n".join(lines))
     return script_path
 
 
 def extract_results(job_name, ysz_data):
-    odb_path    = os.path.join(ABAQUS_JOBS, f"{job_name}.odb")
-    result_json = os.path.join(ABAQUS_JOBS, f"{job_name}_results.json")
+    odb_path    = os.path.join(ABAQUS_JOBS, "%s.odb" % job_name)
+    result_json = os.path.join(ABAQUS_JOBS, "%s_results.json" % job_name)
 
     if not os.path.exists(odb_path):
-        print(f"ERROR: ODB file missing for {job_name}")
+        print("ERROR: ODB file missing for %s" % job_name)
         return None
 
-    print(f"Extracting results from {job_name}.odb")
+    print("Extracting results from %s.odb" % job_name)
     result = subprocess.run(
         ["abaqus", "python", "extract_odb.py",
-         f"{job_name}.odb", f"{job_name}_results.json"],
+         "%s.odb" % job_name, "%s_results.json" % job_name],
         cwd=ABAQUS_JOBS,
         capture_output=True,
         text=True,
@@ -228,17 +208,14 @@ def extract_results(job_name, ysz_data):
     )
 
     if result.returncode != 0:
-        print(f"ERROR: Result extraction failed for {job_name}")
+        print("ERROR: Result extraction failed for %s" % job_name)
         print(result.stderr)
         return None
 
     with open(result_json, "r") as f:
         results = json.load(f)
 
-    # k_eff = (q̄'' · L_total) / ΔT
-    # L_total = YSZ thickness + CMSX-4 thickness [mm]
-    # q̄''    = area-weighted through-thickness heat flux [W mm⁻²]
-    # ΔT     = T_hot − T_cold [K]
+    # k_eff = (q_avg * L_total) / delta_T
     L_total = ysz_data["thickness_mm"] + 10.0
     delta_T = T_HOT - T_COLD
     q       = results["avg_heat_flux_W_per_mm2"]
@@ -291,7 +268,7 @@ def process_job(entry):
         "features":           features,
         "target":             results["effective_thermal_conductivity"],
         "simulation_results": results,
-        "odb_file":           os.path.join(ABAQUS_JOBS, f"{job_name}.odb"),
+        "odb_file":           os.path.join(ABAQUS_JOBS, "%s.odb" % job_name),
         "inp_file":           os.path.join(VARIANTS_DIR, inp_file),
     }
 
@@ -301,7 +278,7 @@ def main():
 
     manifest   = load_manifest()
     total_jobs = len(manifest)
-    print(f"Processing {total_jobs} jobs with 4 parallel processes...")
+    print("Processing %d jobs with 4 parallel processes..." % total_jobs)
 
     with Pool(processes=4) as pool:
         results_list = pool.map(process_job, manifest)
@@ -317,11 +294,11 @@ def main():
 
         if (i + 1) % 50 == 0:
             intermediate_path = os.path.join(
-                RESULTS_DIR, f"dataset_intermediate_{i + 1}.json"
+                RESULTS_DIR, "dataset_intermediate_%d.json" % (i + 1)
             )
             with open(intermediate_path, "w") as f:
                 json.dump(all_data, f, indent=2)
-            print(f"Checkpoint: {len(all_data)} samples saved")
+            print("Checkpoint: %d samples saved" % len(all_data))
 
     dataset_path = os.path.join(RESULTS_DIR, "dataset.json")
     with open(dataset_path, "w") as f:
@@ -332,31 +309,31 @@ def main():
         with open(failed_path, "w") as f:
             json.dump({"failed_jobs": failed_jobs}, f, indent=2)
 
-    print(f"\n{'=' * 60}")
+    print("\n" + "=" * 60)
     print("  ML Dataset Complete")
-    print(f"{'=' * 60}")
-    print(f"  Successful : {len(all_data)}")
-    print(f"  Failed     : {len(failed_jobs)}")
-    print(f"  Dataset    : {dataset_path}")
+    print("=" * 60)
+    print("  Successful : %d" % len(all_data))
+    print("  Failed     : %d" % len(failed_jobs))
+    print("  Dataset    : %s" % dataset_path)
 
     if all_data:
         k_vals = [d["target"] for d in all_data]
-        print(f"\n  k_eff statistics:")
-        print(f"    Min  : {min(k_vals):.6f}  W mm⁻¹ K⁻¹")
-        print(f"    Max  : {max(k_vals):.6f}  W mm⁻¹ K⁻¹")
-        print(f"    Mean : {sum(k_vals)/len(k_vals):.6f}  W mm⁻¹ K⁻¹")
+        print("\n  k_eff statistics:")
+        print("    Min  : %.6f  W/mm/K" % min(k_vals))
+        print("    Max  : %.6f  W/mm/K" % max(k_vals))
+        print("    Mean : %.6f  W/mm/K" % (sum(k_vals) / len(k_vals)))
 
         by_thickness = {}
         for d in all_data:
             th = d["features"]["ysz_thickness_mm"]
             by_thickness.setdefault(th, []).append(d["target"])
 
-        print(f"\n  By YSZ thickness:")
+        print("\n  By YSZ thickness:")
         for th in sorted(by_thickness):
             vals = by_thickness[th]
             print(
-                f"    {th} mm : {len(vals)} samples, "
-                f" mean k_eff = {sum(vals)/len(vals):.6f}  W mm⁻¹ K⁻¹"
+                "    %.1f mm : %d samples,  mean k_eff = %.6f  W/mm/K"
+                % (th, len(vals), sum(vals) / len(vals))
             )
 
 

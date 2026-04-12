@@ -4,21 +4,14 @@ import os
 import sys
 
 # Number of elements through each layer.
-# YSZ: 4 elements (unchanged).
-# CMSX-4: 10 elements of 1 mm each.
-# Root cause of HFL2 spatial non-uniformity: the original code used a single
-# 10 mm CMSX-4 element.  With temperature-dependent conductivity, k(T) spans
-# ~7.8e-3 to ~2.0e-2 W mm⁻¹ K⁻¹ over the 800 K service range.  Within a
-# single DC2D4 element the constitutive flux q = -k(T)*dT/dy therefore varies
-# between Gauss points by up to ~60 %, violating ∇·q = 0 visually.
-# 10 elements of 1 mm each reduce the temperature span per element to ~80 K,
-# making the within-element k(T) variation negligible.
+# YSZ: 4 elements
+# CMSX-4: 10 elements
 N_YSZ  = 4
 N_SUB  = 10
 
 
 def vary(value, percent=0.20):
-    """Apply ±20% random variation to a value."""
+    """Apply +/-20% random variation to a value."""
     return value * (1 + random.uniform(-percent, percent))
 
 
@@ -92,30 +85,30 @@ def generate_abaqus_input(ysz, cmsx, job_name, T_hot=1400.0, T_cold=600.0):
     Generate ABAQUS input file for the YSZ / CMSX-4 heat-transfer simulation.
 
     Mesh layout (N_YSZ = 4, N_SUB = 10):
-    ──────────────────────────────────────────────────────────────
-    Node rows  0 … N_YSZ            : YSZ layer (hot face at row 0)
-    Node rows  N_YSZ … N_YSZ+N_SUB : CMSX-4 substrate (cold face at last row)
-    ──────────────────────────────────────────────────────────────
+    --------------------------------------------------------------
+    Node rows  0 ... N_YSZ            : YSZ layer (hot face at row 0)
+    Node rows  N_YSZ ... N_YSZ+N_SUB : CMSX-4 substrate (cold face at last row)
+    --------------------------------------------------------------
     Total node rows  : N_YSZ + N_SUB + 1  =  15
-    Total nodes      : 2 × 15             =  30
+    Total nodes      : 2 x 15             =  30
     Total elements   : N_YSZ + N_SUB      =  14  (DC2D4)
-    ──────────────────────────────────────────────────────────────
+    --------------------------------------------------------------
     Element numbering (1-indexed):
-      1 … N_YSZ          → YSZ_Elements  (YSZ layer)
-      N_YSZ+1 … N_YSZ+N_SUB → CMSX4_Elements (substrate)
-    ──────────────────────────────────────────────────────────────
-    Hot face (Γ_hot)  : nodes 1, 2      (y = 0)
-    Cold face (Γ_cold): nodes 29, 30    (y = ysz_thick + cmsx_thick)
+      1 ... N_YSZ          -> YSZ_Elements  (YSZ layer)
+      N_YSZ+1 ... N_YSZ+N_SUB -> CMSX4_Elements (substrate)
+    --------------------------------------------------------------
+    Hot face (Gamma_hot)  : nodes 1, 2      (y = 0)
+    Cold face (Gamma_cold): nodes 29, 30    (y = ysz_thick + cmsx_thick)
     """
     lines = []
 
-    # ── Header ────────────────────────────────────────────────────────────────
+    # -- Header ----------------------------------------------------------------
     lines.append("*Heading")
     lines.append(f"** Job: {job_name}, YSZ thickness: {ysz['thickness_mm']} mm")
     lines.append("*Preprint, echo=NO, model=NO, history=NO")
     lines.append("**")
 
-    # ── Geometry ──────────────────────────────────────────────────────────────
+    # -- Geometry --------------------------------------------------------------
     ysz_thick  = ysz["thickness_mm"]
     cmsx_thick = 10.0
     y_top      = ysz_thick + cmsx_thick
@@ -123,11 +116,11 @@ def generate_abaqus_input(ysz, cmsx, job_name, T_hot=1400.0, T_cold=600.0):
     dy = ysz_thick  / N_YSZ   # element height inside YSZ layer
     ds = cmsx_thick / N_SUB   # element height inside CMSX-4 layer (1 mm)
 
-    total_rows  = N_YSZ + N_SUB + 1   # 15
-    total_nodes = 2 * total_rows       # 30
-    n_elements  = N_YSZ + N_SUB        # 14
+    total_rows  = N_YSZ + N_SUB + 1   # 
+    total_nodes = 2 * total_rows       # 
+    n_elements  = N_YSZ + N_SUB        # 
 
-    # ── Part definition ───────────────────────────────────────────────────────
+    # -- Part definition -------------------------------------------------------
     lines.append("** PART: Composite")
     lines.append("*Part, name=Composite")
 
@@ -143,7 +136,7 @@ def generate_abaqus_input(ysz, cmsx, job_name, T_hot=1400.0, T_cold=600.0):
         lines.append(f"  {node_l:4d},           0., {y:12.6f}")
         lines.append(f"  {node_r:4d},          10., {y:12.6f}")
 
-    # Elements (DC2D4, CCW: bottom-left → bottom-right → top-right → top-left).
+    # Elements (DC2D4, CCW: bottom-left -> bottom-right -> top-right -> top-left).
     lines.append("*Element, type=DC2D4")
     for el in range(1, n_elements + 1):
         row = el - 1          # bottom row of this element (0-indexed)
@@ -185,7 +178,7 @@ def generate_abaqus_input(ysz, cmsx, job_name, T_hot=1400.0, T_cold=600.0):
     lines.append("*End Part")
     lines.append("**")
 
-    # ── Assembly ──────────────────────────────────────────────────────────────
+    # -- Assembly --------------------------------------------------------------
     lines.append("** ASSEMBLY")
     lines.append("*Assembly, name=Assembly")
     lines.append("*Instance, name=Composite-1, part=Composite")
@@ -197,7 +190,7 @@ def generate_abaqus_input(ysz, cmsx, job_name, T_hot=1400.0, T_cold=600.0):
     lines.append("*End Assembly")
     lines.append("**")
 
-    # ── Material: CMSX-4 ──────────────────────────────────────────────────────
+    # -- Material: CMSX-4 ------------------------------------------------------
     # Full temperature-dependent table is written (not just the 300 K entry).
     lines.append("** MATERIAL: CMSX4")
     lines.append("*Material, name=CMSX4")
@@ -211,7 +204,7 @@ def generate_abaqus_input(ysz, cmsx, job_name, T_hot=1400.0, T_cold=600.0):
         lines.append(f"{cp:.6e}, {T:.2f}")
     lines.append("**")
 
-    # ── Material: YSZ ─────────────────────────────────────────────────────────
+    # -- Material: YSZ ---------------------------------------------------------
     lines.append("** MATERIAL: YSZ")
     lines.append("*Material, name=YSZ")
     lines.append("*Density")
@@ -224,13 +217,13 @@ def generate_abaqus_input(ysz, cmsx, job_name, T_hot=1400.0, T_cold=600.0):
         lines.append(f"{cp:.6e}, {T:.2f}")
     lines.append("**")
 
-    # ── Initial conditions ────────────────────────────────────────────────────
+    # -- Initial conditions ----------------------------------------------------
     lines.append("** INITIAL CONDITIONS")
     lines.append("*Initial Conditions, type=TEMPERATURE")
     lines.append("Composite-1.AllNodes, 300.")
     lines.append("**")
 
-    # ── Heat-transfer step ────────────────────────────────────────────────────
+    # -- Heat-transfer step ----------------------------------------------------
     lines.append("** STEP: HeatTransfer")
     lines.append("*Step, name=HeatTransfer, nlgeom=NO")
     lines.append("*Heat Transfer, steady state")
@@ -245,7 +238,8 @@ def generate_abaqus_input(ysz, cmsx, job_name, T_hot=1400.0, T_cold=600.0):
     lines.append("*Output, field")
     lines.append("*Node Output")
     lines.append("NT,")
-    lines.append("*Element Output, position=INTEGRATION POINT")
+    #lines.append("*Element Output, position=CENTROIDAL")
+    lines.append("*Element Output")
     lines.append("HFL,")
     lines.append("*Output, history")
     lines.append("*Node Output, nset=ColdBC")
