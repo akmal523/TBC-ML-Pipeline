@@ -148,10 +148,13 @@ def generate_abaqus_input(ysz, cmsx, job_name, T_hot=1400.0, T_cold=600.0):
     lines.append("*Material, name=CMSX4")
     lines.append("*Density")
     lines.append(f"{cmsx['density'][0][1]:.6e},")
-    lines.append("*Conductivity, dependencies=1")
+    
+    # Correction: Removed dependencies=1 and fixed string formatting
+    lines.append("*Conductivity")
     for T, k in cmsx["k"]:
-        lines.append(f"{k:.6e},, {T:.2f}")
-    lines.append("*Specific Heat, dependencies=1")
+        lines.append(f"{k:.6e}, {T:.2f}")
+        
+    lines.append("*Specific Heat")
     for T, cp in cmsx["Cp"]:
         lines.append(f"{cp:.6e}, {T:.2f}")
     lines.append("**")
@@ -161,10 +164,13 @@ def generate_abaqus_input(ysz, cmsx, job_name, T_hot=1400.0, T_cold=600.0):
     lines.append("*Material, name=YSZ")
     lines.append("*Density")
     lines.append(f"{ysz['density']:.6e},")
-    lines.append("*Conductivity, dependencies=1")
+    
+    # Correction: Removed dependencies=1 and fixed string formatting
+    lines.append("*Conductivity")
     for T, k in sorted(ysz["thermal_conductivity"], key=lambda x: x[0]):
-        lines.append(f"{k:.6e},, {T:.2f}")
-    lines.append("*Specific Heat, dependencies=1")
+        lines.append(f"{k:.6e}, {T:.2f}")
+        
+    lines.append("*Specific Heat")
     for T, cp in sorted(ysz["specific_heat"], key=lambda x: x[0]):
         lines.append(f"{cp:.6e}, {T:.2f}")
     lines.append("**")

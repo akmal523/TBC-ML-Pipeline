@@ -107,12 +107,14 @@ def extract_thermal_data(odb_path):
         flux_field = frame.fieldOutputs['HFL']
         fluxes = []
         for v in flux_field.values:
-            # Calculate flux magnitude
-            if hasattr(v.data, '__len__'):
-                flux_mag = sum([float(c)**2 for c in v.data])**0.5
+            # Correction: Direct extraction of HFL2 (through-thickness)
+            if hasattr(v.data, '__len__') and len(v.data) > 1:
+                flux_y = float(v.data[1])   # index 1 = HFL2 = through-thickness
             else:
-                flux_mag = abs(float(v.data))
-            fluxes.append(flux_mag)
+                flux_y = float(v.data)
+            
+            # Keep absolute value to ensure positive flux for k_eff calculation
+            fluxes.append(abs(flux_y))
         
         results = {
             'avg_heat_flux_W_per_mm2': sum(fluxes) / len(fluxes),
