@@ -23,7 +23,7 @@ TBC-ML-Pipeline/
 │   ├── abaqus_ml_pipeline.py      # Stage 2: Simulation execution and ODB data parsing
 │   ├── train_model.py             # Stage 3: Random Forest training and evaluation
 │   ├── comp.py                    # Mathematical comparison and validation logic
-│   └── tbc_ml_plots.py            # Logic for generating analytical visualizations
+│   └── tbc_plots.py               # Logic for generating analytical visualizations
 ├── data/                          # Fixed input parameters
 │   └── materials.json             # Reference physical properties for YSZ and CMSX-4
 ├── results/                       # Artifact layer (Transient outputs of the logic)
@@ -39,43 +39,42 @@ TBC-ML-Pipeline/
 ## Material System
 
 ### YSZ (Yttria-Stabilized Zirconia) — Thermal Barrier Coating
-- Thickness: 0.5, 1.0, 1.5, 2.0 mm
-- Properties randomized ±20% per variant:
-  - Thermal conductivity (dense or porous curves)
-  - Elastic modulus and Poisson's ratio (orientations: 100, 110, 111, 113)
-  - Specific heat capacity
-  - Density
+*   **Thickness:** 0.5, 1.0, 1.5, 2.0 mm.
+*   **Properties randomized ±20% per variant:**
+    *   Thermal conductivity (dense or porous curves).
+    *   Specific heat capacity.
+    *   Density.
 
 ### CMSX-4 — Single-Crystal Nickel Superalloy Substrate
-- Fixed thickness: 10.0 mm
-- Temperature-dependent properties: conductivity, specific heat, density, elastic constants (orientations: 001, 101, 111)
-- No randomization applied
+*   **Fixed thickness:** 10.0 mm.
+*   **Temperature-dependent properties:** Thermal conductivity, specific heat, and density.
+*   **No randomization applied**.
 
 ---
 
 ## Simulation Setup
 
-- Solver: ABAQUS (steady-state heat transfer)
-- Element type: DC2D4 (2D heat transfer quadrilateral)
-- Boundary conditions:
-  - Hot side (YSZ bottom): **T = 1400 K**
-  - Cold side (CMSX-4 top): **T = 600 K**
-- Effective thermal conductivity computed as:
+*   **Solver:** ABAQUS/Standard (steady-state heat transfer).
+*   **Element type:** DC2D4 (bilinear quadrilateral). The finalized mesh uses 14 total elements (4 for the YSZ layer, 10 for the CMSX-4 substrate).
+*   **Boundary conditions:**
+    *   Hot side (YSZ bottom): **T = 1400 K**.
+    *   Cold side (CMSX-4 top): **T = 600 K**.
+*   **Effective thermal conductivity computed as:**
 
-```
+```text
 k_eff = (q * L_total) / ΔT
 ```
 
-where `q` is average heat flux [W/mm²], `L_total` is total coating thickness [mm], and `ΔT = 800 K`.
+where `q` is area-weighted average heat flux [W/mm²], `L_total` is total coating thickness [mm], and `ΔT = 800 K`.
 
 ---
 
 ## Dataset
 
-- Total variants generated: **512** (4 thicknesses × 128 random samples)
-- Successful simulations: **512 / 512**
-- Training set: 412 samples
-- Test set: 100 samples
+*   **Total variants generated:** 512 (4 thicknesses × 128 random samples).
+*   **Successful simulations:** 512 / 512.
+*   **Training set:** 412 samples.
+*   **Test set:** 100 samples.
 
 ### ML Features
 
@@ -86,30 +85,30 @@ where `q` is average heat flux [W/mm²], `L_total` is total coating thickness [m
 | `ysz_k_avg` | Average YSZ thermal conductivity [W/mm·K] |
 | `ysz_cp_avg` | Average YSZ specific heat [mJ/tonne·K] |
 
-**Target:** `k_effective` — effective thermal conductivity of the full TBC system [W/mm·K]
+**Target:** `k_effective` — effective thermal conductivity of the full TBC system [W/mm·K].
 
 ---
 
 ## Results Summary
 
-### Feature Importance (Random Forest)
+### Feature Importance (Random Forest MDI)
 
 | Feature | Importance |
 |---------|------------|
-| `YSZ k_avg` | **91.3%** |
-| `YSZ Thickness` | 8.3% |
-| `YSZ Cp_avg` | 0.2% |
-| `YSZ Density` | 0.2% |
+| `YSZ k_avg` | **84.19%** |
+| `YSZ Thickness` | **15.62%** |
+| `YSZ Cp_avg` | **0.10%** |
+| `YSZ Density` | **0.09%** |
 
 ### Model Performance
 
 | Metric | Training | Test |
 |--------|----------|------|
-| R² | 0.9984 | 0.9904 |
-| MAE | 6.33×10⁻⁵ | 1.57×10⁻⁴ |
-| RMSE | 8.60×10⁻⁵ | 2.05×10⁻⁴ |
+| **R²** | 0.9994 | 0.9938 |
+| **MAE** | 6.50×10⁻⁵ | 2.06×10⁻⁴ |
+| **RMSE** | 1.05×10⁻⁴ | 3.09×10⁻⁴ |
 
-Full result details in [`results/ml_results_description.txt`](results/ml_results_description.txt).
+Full result details can be found in `results/ml_results_description.txt`.
 
 ---
 
@@ -134,15 +133,13 @@ No manual configuration required.
 
 ### Manual stage-by-stage execution
 
-**Stage 1 — Generate ABAQUS input files** *(requires ABAQUS)*
+**-Stage 1 — Generate ABAQUS input files** *(requires ABAQUS)*
 
 ```bash
 python src/generate_cards.py data/materials.json out_dir
 ```
 
 Output: `out_dir/` containing 512 `.inp` files and `variants_manifest.json`.
-
-# Manual stage-by-stage execution
 
 **Stage 2 — Run simulations and extract results**
 Output: `results/dataset.json`
@@ -151,7 +148,6 @@ Output: `results/dataset.json`
 Output: `results/ml_results.json`, `results/ml_results.png`
 
 > If running Stage 3 manually without ABAQUS, ensure `results/dataset.json` exists.
-
 
 ---
 
@@ -167,7 +163,7 @@ See `requirements.txt` for the full list. ABAQUS is required for Stage 2 and is 
 
 ## Units
 
-All quantities follow the ABAQUS consistent unit system used in this project:
+All quantities follow the ABAQUS consistent unit system (mm-t-s) used in this project:
 
 | Quantity | Unit |
 |----------|------|
@@ -178,13 +174,3 @@ All quantities follow the ABAQUS consistent unit system used in this project:
 | Thermal conductivity | W/(mm·K) |
 | Specific heat | mJ/(tonne·K) |
 | Temperature | K |
-
----
-
-## Data Sources
-
-- CMSX-4 thermal conductivity: ResearchGate / Epishin et al.
-- CMSX-4 elastic properties: ScienceDirect / Epishin et al.
-- YSZ thermal conductivity: ResearchGate / porous and dense ceramics data
-- YSZ elastic properties: ScienceDirect
-- YSZ density and specific heat: Morgan Technical Ceramics / ENEA
